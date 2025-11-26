@@ -102,6 +102,7 @@ export class BibleNotesDB extends Dexie {
   drawNotes!: Table<DrawNote>;
   textAnnotations!: Table<TextAnnotation>;
   verseGroups!: Table<VerseGroup>;
+  annotations: any;
 
   constructor() {
     super('BibleNotesDB');

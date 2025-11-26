@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { db, Note } from '../../lib/db';
+import { db, Note, TextAnnotation } from '../../lib/db';
 
 interface BackupData {
-  // annotations: Annotation[];
+  annotations: TextAnnotation[];
   notes: Note[];
   // journals: Journal[];
   // verseLinks: VerseLink[];
@@ -13,7 +13,7 @@ export default function Backup() {
 
   const exportData = async () => {
     const data: BackupData = {
-      //annotations: await db.annotations.toArray(),
+      annotations: await db.annotations.toArray(),
       notes: await db.notes.toArray(),
       //journals: await db.journals.toArray(),
       //verseLinks: await db.verseLinks.toArray(),
@@ -31,7 +31,7 @@ export default function Backup() {
     const file = event.target.files?.[0];
     if (!file) return;
     const data: BackupData = JSON.parse(await file.text());
-    // await db.annotations.bulkPut(data.annotations);
+    await db.annotations.bulkPut(data.annotations);
     await db.notes.bulkPut(data.notes);
     // await db.journals.bulkPut(data.journals);
     // await db.verseLinks.bulkPut(data.verseLinks);
@@ -62,7 +62,7 @@ export default function Backup() {
   const uploadToDrive = async () => {
     if (!token) return;
     const data: BackupData = {
-      // annotations: await db.annotations.toArray(),
+      annotations: await db.annotations.toArray(),
       notes: await db.notes.toArray(),
       // journals: await db.journals.toArray(),
       // verseLinks: await db.verseLinks.toArray(),

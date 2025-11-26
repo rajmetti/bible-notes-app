@@ -6,7 +6,7 @@ import { initBibleData } from '../lib/db';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import './globals.css';
-import { ThemeProvider } from 'next-themes';
+import { ThemeProvider } from '@/app/theme-provider';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const [initError, setInitError] = useState<string | null>(null);
@@ -33,7 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </nav> */}
         <ThemeProvider
             attribute="class"
-            defaultTheme="system"
+            defaultTheme="light"
             enableSystem
             disableTransitionOnChange
           >

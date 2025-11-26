@@ -1,10 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef, JSX } from 'react';
-import { useTheme } from 'next-themes';
 import { db, Verse as VerseType, Note, Highlight, VerseLink, DrawNote, TextAnnotation, deleteHighlight, deleteNote, deleteDrawNote, deleteTextAnnotation } from '../../lib/db';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -15,6 +13,7 @@ import { ChromePicker } from 'react-color';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface VerseProps {
   verse: VerseType;
@@ -24,18 +23,24 @@ interface VerseProps {
   onNavigate?: (verseRef: string) => void;
   isGrouped?: boolean;
   isSelected?: boolean;
+  onOpenNoteDrawer?: (verseRef: string, initialNote: string) => void;
 }
 
-export default function Verse({ verse, translation, teluguText, onSelect, onNavigate, isGrouped, isSelected }: VerseProps) {
-  const { theme } = useTheme();
-  const isDarkMode = theme === 'dark';
+export function Verse({
+                        verse,
+                        translation,
+                        teluguText,
+                        onSelect,
+                        onNavigate,
+                        isGrouped,
+                        isSelected,
+                        onOpenNoteDrawer
+                      }: VerseProps) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [verseLinks, setVerseLinks] = useState<VerseLink[]>([]);
   const [drawNotes, setDrawNotes] = useState<DrawNote[]>([]);
   const [textAnnotations, setTextAnnotations] = useState<TextAnnotation[]>([]);
-  const [isAddingNote, setIsAddingNote] = useState<boolean>(false);
-  const [newNote, setNewNote] = useState<string>('');
   const [isHighlighting, setIsHighlighting] = useState<boolean>(false);
   const [highlightColor, setHighlightColor] = useState<string>('#000000');
   const [isLinkingVerse, setIsLinkingVerse] = useState<boolean>(false);
@@ -55,55 +60,110 @@ export default function Verse({ verse, translation, teluguText, onSelect, onNavi
     bold?: boolean;
     italic?: boolean;
     fontFamily?: string;
-  }>({ color: '#000000', underlineType: 'solid', bold: false, italic: false, fontFamily: 'Arial' });
+  }>({color: '#000000', underlineType: 'solid', bold: false, italic: false, fontFamily: 'Arial'});
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  const [pendingTextSelection, setPendingTextSelection] = useState<{
+    range: Range;
+    language: 'English' | 'Telugu';
+  } | null>(null);
+  const [activeTextSelection, setActiveTextSelection] = useState<{
+    range: Range;
+    language: 'English' | 'Telugu';
+  } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const englishTextRef = useRef<HTMLSpanElement>(null);
   const teluguTextRef = useRef<HTMLSpanElement>(null);
+  const verseRowRef = useRef<HTMLTableRowElement>(null);
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
+
+  const verseRef = `${verse.book_name}:${verse.chapter}:${verse.verse}`;
+  const sanitizedVerseRef = verseRef.replace(/:/g, '-');
 
   useEffect(() => {
     const fetchData = async () => {
+      setIsLoading(true);
       try {
-        const verseRef = `${verse.book_name}:${verse.chapter}:${verse.verse}`;
         const fetchedNotes = await db.notes.where('verseRef').equals(verseRef).toArray();
         setNotes(fetchedNotes);
-
         const fetchedHighlights = await db.highlights.where('verseRef').equals(verseRef).toArray();
         setHighlights(fetchedHighlights);
-
         const fetchedLinks = await db.verseLinks.where('sourceRef').equals(verseRef).toArray();
         setVerseLinks(fetchedLinks);
-
         const fetchedDrawNotes = await db.drawNotes.where('verseRef').equals(verseRef).toArray();
         setDrawNotes(fetchedDrawNotes);
-
         const fetchedAnnotations = await db.textAnnotations.where('verseRef').equals(verseRef).toArray();
         setTextAnnotations(fetchedAnnotations);
       } catch (error) {
         console.error('Error fetching data:', error);
         setError('Failed to load verse data.');
+      } finally {
+        setIsLoading(false);
       }
     };
     fetchData();
-  }, [verse]);
+  }, [verseRef]);
 
-  const addNote = async () => {
-    if (!newNote.trim()) {
+  useEffect(() => {
+    if (verseRowRef.current && !isLoading) {
+      import('animejs').then(({animate, stagger}) => {
+        animate(verseRowRef.current, {
+          opacity: [0, 1],
+          translateY: ['10px', '0px'],
+          duration: 600,
+          ease: 'outQuad',
+          delay: stagger('100ms', {start: verse.verse * 100}),
+        });
+      });
+    }
+  }, [verse.verse, isLoading]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      const dialogs = document.querySelectorAll('.dialog-content');
+      import('animejs').then(({animate}) => {
+        animate(dialogs, {
+          scale: [0.95, 1],
+          opacity: [0, 1],
+          duration: 300,
+          ease: 'outQuad',
+        });
+      });
+    }
+  }, [isHighlighting, isAnnotatingText, isLinkingVerse, isDrawing, showRemoveHighlightDialog, showRemoveNoteDialog, showRemoveDrawNoteDialog, showRemoveTextAnnotationDialog, isLoading]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      const checkbox = document.querySelector(`#checkbox-${sanitizedVerseRef}`);
+      if (checkbox && isSelected !== undefined) {
+        import('animejs').then(({animate}) => {
+          animate(`#checkbox-${sanitizedVerseRef}`, {
+            scale: isSelected ? [0.8, 1] : [1, 0.8],
+            opacity: [0.7, 1],
+            duration: 200,
+            ease: 'outQuad',
+          });
+        });
+      }
+    }
+  }, [isSelected, sanitizedVerseRef, isLoading]);
+
+  const addNote = async (noteContent: string) => {
+    if (!noteContent.trim()) {
       setError('Note cannot be empty.');
       return;
     }
     const note: Note = {
-      verseRef: `${verse.book_name}:${verse.chapter}:${verse.verse}`,
-      content: newNote,
+      verseRef,
+      content: noteContent,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
     try {
       await db.notes.put(note);
       setNotes([...notes, note]);
-      setNewNote('');
-      setIsAddingNote(false);
       setError(null);
+      onOpenNoteDrawer?.(verseRef, noteContent);
     } catch (error) {
       console.error('Error saving note:', error);
       setError('Failed to save note.');
@@ -111,19 +171,17 @@ export default function Verse({ verse, translation, teluguText, onSelect, onNavi
   };
 
   const addHighlight = async () => {
-    const verseRef = `${verse.book_name}:${verse.chapter}:${verse.verse}`;
-    const highlightColorValue = highlightColor;
     const highlights: Highlight[] = [
       {
         verseRef,
-        color: highlightColorValue,
+        color: highlightColor,
         language: 'English',
         createdAt: Date.now(),
         updatedAt: Date.now(),
       },
       {
         verseRef,
-        color: highlightColorValue,
+        color: highlightColor,
         language: 'Telugu',
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -194,7 +252,7 @@ export default function Verse({ verse, translation, teluguText, onSelect, onNavi
       return;
     }
     const link: VerseLink = {
-      sourceRef: `${verse.book_name}:${verse.chapter}:${verse.verse}`,
+      sourceRef: verseRef,
       targetRef: targetVerseRef,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -214,20 +272,23 @@ export default function Verse({ verse, translation, teluguText, onSelect, onNavi
   const initCanvas = (canvas: HTMLCanvasElement) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.fillStyle = isDarkMode ? '#1F1F1F' : '#FFFFFF';
+    ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     let isDrawing = false;
 
-    canvas.addEventListener('mousedown', () => {
+    canvas.addEventListener('mousedown', (e) => {
       isDrawing = true;
+      const rect = canvas.getBoundingRect();
       ctx.beginPath();
+      ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
     });
     canvas.addEventListener('mousemove', (e) => {
       if (!isDrawing) return;
-      const rect = canvas.getBoundingClientRect();
+      const rect = canvas.getBoundingRect();
       ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
-      ctx.strokeStyle = isDarkMode ? '#FFFFFF' : '#000000';
+      ctx.strokeStyle = '#000000';
       ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
       ctx.stroke();
     });
     canvas.addEventListener('mouseup', () => (isDrawing = false));
@@ -238,7 +299,7 @@ export default function Verse({ verse, translation, teluguText, onSelect, onNavi
     if (!canvasRef.current) return;
     const data = canvasRef.current.toDataURL();
     const drawNote: DrawNote = {
-      verseRef: `${verse.book_name}:${verse.chapter}:${verse.verse}`,
+      verseRef,
       data,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -263,8 +324,12 @@ export default function Verse({ verse, translation, teluguText, onSelect, onNavi
         const range = selection.getRangeAt(0);
         const start = range.startOffset;
         const end = range.endOffset;
+        setActiveTextSelection({
+          range: range.cloneRange(),
+          language
+        })
         if (start !== end) {
-          setSelectedTextRange({ start, end });
+          setSelectedTextRange({start, end});
           return language;
         }
       }
@@ -273,15 +338,58 @@ export default function Verse({ verse, translation, teluguText, onSelect, onNavi
     return null;
   };
 
+  // const handleAnnotateText = () => {
+  //   const language = handleTextSelection('English') || handleTextSelection('Telugu');
+  //   if (language) {
+  //     setIsAnnotatingText(true);
+  //     setSelectedLanguage(language);
+  //     setAnnotationStyle({ ...annotationStyle });
+  //   } else {
+  //     setError('Please select some text in the verse to annotate.');
+  //   }
+  // };
   const handleAnnotateText = () => {
-    const language = handleTextSelection('English') || handleTextSelection('Telugu');
-    if (language) {
-      setIsAnnotatingText(true);
-      setSelectedLanguage(language);
-      setAnnotationStyle({ ...annotationStyle});
-    } else {
-      setError('Please select some text in the verse to annotate.');
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      if (activeTextSelection) {
+        setIsAnnotatingText(true);
+        setSelectedLanguage(activeTextSelection.language);
+        setSelectedTextRange({
+          start: activeTextSelection.range.startOffset,
+          end: activeTextSelection.range.endOffset,
+        });
+        // Restore visual selection briefly for UX
+        // selection.removeAllRanges();
+        // selection.addRange(pendingTextSelection.range);
+      } else {
+        setError('Please select some text in the verse to annotate.');
+      }
+      return;
     }
+
+    const range = selection.getRangeAt(0);
+    let language: 'English' | 'Telugu' | null = null;
+
+    if (englishTextRef.current?.contains(range.commonAncestorContainer)) {
+      language = 'English';
+    } else if (teluguTextRef.current?.contains(range.commonAncestorContainer)) {
+      language = 'Telugu';
+    }
+
+    if (language && !selection.isCollapsed) {
+      setPendingTextSelection({range: range.cloneRange(), language});
+      setSelectedLanguage(language);
+      setSelectedTextRange({
+        start: range.startOffset,
+        end: range.endOffset,
+      });
+      setIsAnnotatingText(true);
+    } else {
+      setError('Please select valid text within the verse.');
+    }
+
+    // Clear selection only after capturing
+    selection.removeAllRanges();
   };
 
   const addTextAnnotation = async () => {
@@ -289,13 +397,11 @@ export default function Verse({ verse, translation, teluguText, onSelect, onNavi
       setError('No text selected or language not specified.');
       return;
     }
-    const verseRef = `${verse.book_name}:${verse.chapter}:${verse.verse}`;
-    const annotationColor = isDarkMode ? '#FFFFFF' : '#000000';
     const annotation: TextAnnotation = {
       verseRef,
       start: selectedTextRange.start,
       end: selectedTextRange.end,
-      style: { ...annotationStyle, color: annotationColor },
+      style: {...annotationStyle},
       language: selectedLanguage,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -320,13 +426,12 @@ export default function Verse({ verse, translation, teluguText, onSelect, onNavi
 
     if (annotations.length === 0 && !highlight) {
       return (
-        <span
-          ref={textRef}
-          data-language={language}
-          
-          onMouseUp={() => handleTextSelection(language)}
-          onTouchEnd={() => handleTextSelection(language)}
-        >
+          <span
+              ref={textRef}
+              data-language={language}
+              onMouseUp={() => handleTextSelection(language)}
+              onTouchEnd={() => handleTextSelection(language)}
+          >
           {text}
         </span>
       );
@@ -340,14 +445,13 @@ export default function Verse({ verse, translation, teluguText, onSelect, onNavi
       sortedAnnotations.forEach((annotation, index) => {
         if (annotation.start > lastIndex) {
           elements.push(
-            <span
-              key={`text-${lastIndex}`}
-              className="highlight-bg"
-              style={{ backgroundColor: highlight.color }}
-              data-language={language}
-              onMouseUp={() => handleTextSelection(language)}
-              onTouchEnd={() => handleTextSelection(language)}
-            >
+              <span
+                  key={`text-${lastIndex}`}
+                  style={{backgroundColor: highlight.color}}
+                  data-language={language}
+                  onMouseUp={() => handleTextSelection(language)}
+                  onTouchEnd={() => handleTextSelection(language)}
+              >
               {text.slice(lastIndex, annotation.start)}
             </span>
           );
@@ -357,17 +461,17 @@ export default function Verse({ verse, translation, teluguText, onSelect, onNavi
           fontWeight: annotation.style.bold ? 'bold' : undefined,
           fontStyle: annotation.style.italic ? 'italic' : undefined,
           fontFamily: annotation.style.fontFamily,
-          color: annotation.style.color || (isDarkMode ? '#FFFFFF' : '#000000'),
+          color: annotation.style.color,
         };
         elements.push(
-          <span
-            key={`annotation-${index}`}
-            style={style}
-            className="annotation-text"
-            data-language={language}
-            onMouseUp={() => handleTextSelection(language)}
-            onTouchEnd={() => handleTextSelection(language)}
-          >
+            <span
+                key={`annotation-${index}`}
+                style={style}
+                className="annotation-text"
+                data-language={language}
+                onMouseUp={() => handleTextSelection(language)}
+                onTouchEnd={() => handleTextSelection(language)}
+            >
             {text.slice(annotation.start, annotation.end)}
           </span>
         );
@@ -376,14 +480,13 @@ export default function Verse({ verse, translation, teluguText, onSelect, onNavi
 
       if (lastIndex < text.length) {
         elements.push(
-          <span
-            key={`text-${lastIndex}`}
-            className="highlight-bg"
-            style={{ backgroundColor: highlight.color }}
-            data-language={language}
-            onMouseUp={() => handleTextSelection(language)}
-            onTouchEnd={() => handleTextSelection(language)}
-          >
+            <span
+                key={`text-${lastIndex}`}
+                style={{backgroundColor: highlight.color}}
+                data-language={language}
+                onMouseUp={() => handleTextSelection(language)}
+                onTouchEnd={() => handleTextSelection(language)}
+            >
             {text.slice(lastIndex)}
           </span>
         );
@@ -392,13 +495,12 @@ export default function Verse({ verse, translation, teluguText, onSelect, onNavi
       sortedAnnotations.forEach((annotation, index) => {
         if (annotation.start > lastIndex) {
           elements.push(
-            <span
-              key={`text-${lastIndex}`}
-              
-              data-language={language}
-              onMouseUp={() => handleTextSelection(language)}
-              onTouchEnd={() => handleTextSelection(language)}
-            >
+              <span
+                  key={`text-${lastIndex}`}
+                  data-language={language}
+                  onMouseUp={() => handleTextSelection(language)}
+                  onTouchEnd={() => handleTextSelection(language)}
+              >
               {text.slice(lastIndex, annotation.start)}
             </span>
           );
@@ -408,17 +510,17 @@ export default function Verse({ verse, translation, teluguText, onSelect, onNavi
           fontWeight: annotation.style.bold ? 'bold' : undefined,
           fontStyle: annotation.style.italic ? 'italic' : undefined,
           fontFamily: annotation.style.fontFamily,
-          color: annotation.style.color || (isDarkMode ? '#FFFFFF' : '#000000'),
+          color: annotation.style.color,
         };
         elements.push(
-          <span
-            key={`annotation-${index}`}
-            style={style}
-            className="annotation-text"
-            data-language={language}
-            onMouseUp={() => handleTextSelection(language)}
-            onTouchEnd={() => handleTextSelection(language)}
-          >
+            <span
+                key={`annotation-${index}`}
+                style={style}
+                className="annotation-text"
+                data-language={language}
+                onMouseUp={() => handleTextSelection(language)}
+                onTouchEnd={() => handleTextSelection(language)}
+            >
             {text.slice(annotation.start, annotation.end)}
           </span>
         );
@@ -427,13 +529,12 @@ export default function Verse({ verse, translation, teluguText, onSelect, onNavi
 
       if (lastIndex < text.length) {
         elements.push(
-          <span
-            key={`text-${lastIndex}`}
-            
-            data-language={language}
-            onMouseUp={() => handleTextSelection(language)}
-            onTouchEnd={() => handleTextSelection(language)}
-          >
+            <span
+                key={`text-${lastIndex}`}
+                data-language={language}
+                onMouseUp={() => handleTextSelection(language)}
+                onTouchEnd={() => handleTextSelection(language)}
+            >
             {text.slice(lastIndex)}
           </span>
         );
@@ -443,498 +544,499 @@ export default function Verse({ verse, translation, teluguText, onSelect, onNavi
     return <span ref={textRef}>{elements}</span>;
   };
 
+  if (isLoading) {
+    return (
+        <div className="py-1 px-4 max-w-screen-2xl mx-auto">
+          <table className="verse-table">
+            <tbody>
+            <tr className={`verse-row ${isGrouped ? 'ml-4' : ''}`}>
+              <td className="verse-number">
+                <div className="flex gap-1">
+                  <Skeleton className="h-6 w-16"/>
+                  <Skeleton className="h-6 w-12"/>
+                </div>
+              </td>
+              <td className="verse-text">
+                <Skeleton className="h-4 w-[80%] mb-2"/>
+                {translation === 'Both' && <Skeleton className="h-4 w-[80%]"/>}
+              </td>
+              <td className="verse-actions">
+                <div className="verse-actions-container">
+                  <Skeleton className="h-5 w-5"/>
+                  <Skeleton className="h-5 w-5"/>
+                </div>
+              </td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+    );
+  }
+
   return (
-    <div className="py-1 ">
-      <div
-        className={`flex flex-col gap-2 rounded-lg shadow-sm p-4 hover:shadow-md transition-shadow duration-200 border border-border ${
-          isSelected && !isGrouped ? '!border-blue-500' : ''
-        }`}
-      >
-        <div className="flex justify-between items-center">
-          <div className="flex gap-1">
-            <Badge
-              variant="outline"
-              onClick={() => onNavigate && onNavigate(`${verse.book_name}:${verse.chapter}:${verse.verse}`)}
-              aria-label={`${verse.book_name} ${verse.chapter}:${verse.verse}`}
-            >
-              {verse.book_name}
-            </Badge>
-            <Badge
-              variant="outline"
-              onClick={() => onNavigate && onNavigate(`${verse.book_name}:${verse.chapter}:${verse.verse}`)}
-              aria-label={`${verse.book_name} ${verse.chapter}:${verse.verse}`}
-            >
-              {verse.chapter}
-            </Badge>
-            <Badge
-              variant="outline"
-              onClick={() => onNavigate && onNavigate(`${verse.book_name}:${verse.chapter}:${verse.verse}`)}
-              aria-label={`${verse.book_name} ${verse.chapter}:${verse.verse}`}
-            >
-              {verse.verse}
-            </Badge>
-          </div>
-          <div className="flex items-center gap-2">
-            {isGrouped ? (
-              <CheckCircle className="w-4 h-4 text-green-500" />
-            ) : (
-              <Checkbox
-                checked={isSelected}
-                onCheckedChange={() => onSelect && onSelect(verse.verse)}
-                aria-label={`Select verse ${verse.verse}`}
-              />
-            )}
-            <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
+      <div className="py-1 px-4 max-w-screen-2xl mx-auto">
+        <table className="verse-table">
+          <tbody>
+          <tr ref={verseRowRef} className={`verse-row ${isGrouped ? 'ml-4' : ''} ${isSelected ? 'bg-primary/10' : ''}`}>
+            <td className="verse-number">
+              <div className="flex gap-1">
+                <Badge
+                    variant="outline"
+                    className={`cursor-pointer ${isSelected ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
+                    onClick={() => onNavigate?.(verseRef)}
+                    aria-label={`${verse.book_name} ${verse.chapter}:${verse.verse}`}
                 >
-                  <MoreHorizontal className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => setIsAddingNote(true)} >
-                  <Pencil className="w-4 h-4 mr-2" />
-                  Add Note
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setIsHighlighting(true)}>
-                  <Highlighter className="w-4 h-4 mr-2" />
-                  Highlight Verse
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleAnnotateText}>
-                  <Highlighter className="w-4 h-4 mr-2" />
-                  Annotate Text
-                </DropdownMenuItem>
-                {highlights.length > 0 && (
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger >
-                      <Trash className="w-4 h-4 mr-2" />
-                      Remove Highlight
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent >
-                      {highlights.map((highlight) => (
-                        <DropdownMenuItem
-                          key={highlight.id}
-                          onClick={() => setShowRemoveHighlightDialog(highlight.id!)}
-                        >
-                          Remove {highlight.color} ({highlight.language})
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                )}
-                {textAnnotations.length > 0 && (
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger >
-                      <Trash className="w-4 h-4 mr-2" />
-                      Remove Text Annotation
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      {textAnnotations.map((annotation) => (
-                        <DropdownMenuItem
-                          key={annotation.id}
-                          onClick={() => setShowRemoveTextAnnotationDialog(annotation.id!)}
-                          
-                        >
-                          Remove: {verse.text.slice(annotation.start, annotation.end)} ({annotation.language})
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                )}
-                <DropdownMenuItem onClick={() => setIsLinkingVerse(true)}>
-                  <Link className="w-4 h-4 mr-2" />
-                  Link to Verse
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setIsDrawing(true)}>
-                  <Paintbrush className="w-4 h-4 mr-2" />
-                  Draw Note
-                </DropdownMenuItem>
-                {notes.length > 0 && (
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <Trash className="w-4 h-4 mr-2" />
-                      Remove Note
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent >
-                      {notes.map((note) => (
-                        <DropdownMenuItem
-                          key={note.id}
-                          onClick={() => setShowRemoveNoteDialog(note.id!)}
-                          
-                        >
-                          Remove: {note.content.substring(0, 20)}...
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                )}
-                {drawNotes.length > 0 && (
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger >
-                      <Trash className="w-4 h-4 mr-2" />
-                      Remove Drawing
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent >
-                      {drawNotes.map((drawNote) => (
-                        <DropdownMenuItem
-                          key={drawNote.id}
-                          onClick={() => setShowRemoveDrawNoteDialog(drawNote.id!)}
-                          
-                        >
-                          Remove Drawing
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-        <div className="text-md leading-relaxed space-y-2">
-          {(translation === 'English' || translation === 'Both') && (
-            <div className="p-3 ">
-              {/* <span className={`font-bold`}>English (ASV):</span>{' '} */}
-              {verse.text ? renderAnnotatedText(verse.text, 'English', englishTextRef) : 'English translation not available'}
-            </div>
-          )}
-          {(translation === 'Telugu' || translation === 'Both') && translation === 'Both' && <hr className="border-border my-2" />}
-          {(translation === 'Telugu' || translation === 'Both') && (
-            <div className="p-3 font-noto-serif-telugu">
-              {/* <span className={`font-bold`}>Telugu:</span>{' '} */}
-              {teluguText ? renderAnnotatedText(teluguText, 'Telugu', teluguTextRef) : 'Telugu translation not available'}
-            </div>
-          )}
-        </div>
-        <div className="mt-2 space-y-1">
-          {notes.length > 0 && (
-            <div className="space-y-1">
-              {notes.map((note) => (
-                <div key={note.id} className={`p-2 rounded-md text-sm`}>
-                  {note.content}
-                </div>
-              ))}
-            </div>
-          )}
-          {verseLinks.length > 0 && (
-            <div className="space-y-1">
-              {verseLinks.map((link) => (
-                <div key={link.id} className={`text-sm`}>
-                  Linked to:{' '}
-                  <button
-                    className={isDarkMode ? 'text-white hover:underline' : 'text-black hover:underline'}
-                    onClick={() => onNavigate && onNavigate(link.targetRef)}
-                  >
-                    {link.targetRef}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          {drawNotes.length > 0 && (
-            <div className="space-y-1">
-              {drawNotes.map((drawNote) => (
-                <img
-                  key={drawNote.id}
-                  src={drawNote.data}
-                  alt="Drawn note"
-                  className="w-32 h-32 object-contain rounded-md"
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-      {error && (
-        <Alert variant="destructive" className="mt-1">
-          <AlertTitle >Error</AlertTitle>
-          <AlertDescription >{error}</AlertDescription>
-        </Alert>
-      )}
-      {isAddingNote && (
-        <div className="mt-1 space-y-1">
-          <Textarea
-            value={newNote}
-            onChange={(e) => setNewNote(e.target.value)}
-            placeholder="Add a note..."
-            className={`w-full text-sm`}
-          />
-          <div className="flex gap-2">
-            <Button
-              onClick={addNote}
-              size="sm"
-              className="bg-primary"
-            >
-              Save Note
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsAddingNote(false)}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
-      )}
-      <Dialog open={isHighlighting} onOpenChange={setIsHighlighting}>
-        <DialogContent >
-          <DialogHeader>
-            <DialogTitle >Highlight Verse</DialogTitle>
-            <DialogDescription >
-              Choose a color to highlight {verse.book_name} {verse.chapter}:{verse.verse} in both English and Telugu.
-            </DialogDescription>
-          </DialogHeader>
-          <ChromePicker
-            color={highlightColor}
-            onChange={(color) => setHighlightColor(color.hex)}
-            disableAlpha
-          />
-          <Button
-            onClick={addHighlight}
-            className="mt-4 bg-primary"
-          >
-            Apply Highlight
-          </Button>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={isAnnotatingText}
-        onOpenChange={(open) => {
-          setIsAnnotatingText(open);
-          if (!open) {
-            setSelectedTextRange(null);
-            window.getSelection()?.removeAllRanges();
-          }
-        }}
-      >
-        <DialogContent >
-          <DialogHeader>
-            <DialogTitle >Annotate Text</DialogTitle>
-            <DialogDescription >
-              {selectedTextRange
-                ? `Annotate selected text in ${verse.book_name} ${verse.chapter}:${verse.verse} for both English and Telugu.`
-                : 'Select text in the verse to annotate.'}
-            </DialogDescription>
-          </DialogHeader>
-          {selectedTextRange && (
-            <>
-              <div className="space-y-2">
-                <label className={`text-sm font-medium `}>Highlight Color</label>
-                <ChromePicker
-                  color={annotationStyle.color}
-                  onChange={(color) => setAnnotationStyle({ ...annotationStyle, color:color.hex})}
-                  disableAlpha
-                />
-                <label className={`text-sm font-medium `}>Underline Type</label>
-                <Select
-                  value={annotationStyle.underlineType || 'solid'}
-                  onValueChange={(value) =>
-                    setAnnotationStyle({ ...annotationStyle, underlineType: value as 'solid' | 'dotted' | 'dashed' | 'wavy' })
-                  }
+                  {verse.book_name}
+                </Badge>
+                <Badge
+                    variant="outline"
+                    className={`cursor-pointer ${isSelected ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
+                    onClick={() => onNavigate?.(verseRef)}
+                    aria-label={`${verse.book_name} ${verse.chapter}:${verse.verse}`}
                 >
-                  <SelectTrigger className={`bg-card dark:bg-card`}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent >
-                    <SelectItem value="solid">Solid</SelectItem>
-                    <SelectItem value="dotted">Dotted</SelectItem>
-                    <SelectItem value="dashed">Dashed</SelectItem>
-                    <SelectItem value="wavy">Wavy</SelectItem>
-                  </SelectContent>
-                </Select>
-                <label className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-black'}`}>Font Style</label>
-                <div className="flex gap-2">
-                  <Button
-                    variant={annotationStyle.bold ? 'default' : 'outline'}
-                    onClick={() => setAnnotationStyle({ ...annotationStyle, bold: !annotationStyle.bold })}
-                    size="sm"
-                    className={annotationStyle.bold ? 'bg-primary text-white dark:text-white' : `bg-card dark:bg-card ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-black hover:bg-gray-200'}`}
-                  >
-                    Bold
-                  </Button>
-                  <Button
-                    variant={annotationStyle.italic ? 'default' : 'outline'}
-                    onClick={() => setAnnotationStyle({ ...annotationStyle, italic: !annotationStyle.italic })}
-                    size="sm"
-                    className={annotationStyle.italic ? 'bg-primary text-white dark:text-white' : `bg-card dark:bg-card ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-black hover:bg-gray-200'}`}
-                  >
-                    Italic
-                  </Button>
-                </div>
-                <label className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-black'}`}>Font Family</label>
-                <Select
-                  value={annotationStyle.fontFamily || 'Arial'}
-                  onValueChange={(value) => setAnnotationStyle({ ...annotationStyle, fontFamily: value })}
-                >
-                  <SelectTrigger className={`bg-card dark:bg-card ${isDarkMode ? 'text-white' : 'text-black'}`}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent >
-                    <SelectItem value="Arial">Arial</SelectItem>
-                    <SelectItem value="Times New Roman">Times New Roman</SelectItem>
-                    <SelectItem value="Georgia">Georgia</SelectItem>
-                    <SelectItem value="Courier New">Courier New</SelectItem>
-                    <SelectItem value="Noto Serif Telugu">Noto Serif Telugu</SelectItem>
-                  </SelectContent>
-                </Select>
+                  {verse.chapter}:{verse.verse}
+                </Badge>
               </div>
-              <Button
-                onClick={addTextAnnotation}
-                className="mt-4 bg-primary text-white dark:text-white hover:bg-gray-700 dark:hover:bg-gray-700"
-              >
-                Apply Annotation
-              </Button>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-      <Dialog open={isLinkingVerse} onOpenChange={setIsLinkingVerse}>
-        <DialogContent >
-          <DialogHeader>
-            <DialogTitle >Link to Another Verse</DialogTitle>
-            <DialogDescription >
-              Enter a verse reference (e.g., John:3:16) to link from {verse.book_name} {verse.chapter}:{verse.verse}.
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            value={targetVerseRef}
-            onChange={(e) => setTargetVerseRef(e.target.value)}
-            placeholder="Enter verse (e.g., John:3:16)"
-            className={`w-full bg-card dark:bg-card ${isDarkMode ? 'text-white' : 'text-black'}`}
-          />
-          <Button
-            onClick={addVerseLink}
-            className="mt-4 bg-primary text-white dark:text-white hover:bg-gray-700 dark:hover:bg-gray-700"
-          >
-            Save Link
-          </Button>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={isDrawing} onOpenChange={setIsDrawing}>
-        <DialogContent >
-          <DialogHeader>
-            <DialogTitle >Draw Note</DialogTitle>
-            <DialogDescription >
-              Draw a note for {verse.book_name} {verse.chapter}:{verse.verse} using the canvas below.
-            </DialogDescription>
-          </DialogHeader>
-          <canvas
-            ref={(el) => {
-              if (el && !canvasRef.current) {
-                canvasRef.current = el;
-                initCanvas(el);
+            </td>
+            <td className="verse-text">
+              {translation === 'English' || translation === 'Both' ? (
+                  <div className="text-sm">
+                    {verse.text ? renderAnnotatedText(verse.text, 'English', englishTextRef) : 'No English text available'}
+                  </div>
+              ) : null}
+              {translation === 'Telugu' || translation === 'Both' ? (
+                  <div className="text-sm font-noto-serif-telugu">
+                    {teluguText ? renderAnnotatedText(teluguText, 'Telugu', teluguTextRef) : 'No Telugu text available'}
+                  </div>
+              ) : null}
+              {(notes.length > 0 || verseLinks.length > 0 || drawNotes.length > 0) && (
+                  <div className="space-y-1 text-sm mt-1">
+                    {notes.map((note) => (
+                        <div key={note.id} className="bg-muted p-1 rounded-md">
+                          {note.content}
+                        </div>
+                    ))}
+                    {verseLinks.map((link) => (
+                        <div key={link.id}>
+                          Linked to:{' '}
+                          <button
+                              className="hover:underline text-primary"
+                              onClick={() => onNavigate?.(link.targetRef)}
+                          >
+                            {link.targetRef}
+                          </button>
+                        </div>
+                    ))}
+                    {drawNotes.map((drawNote) => (
+                        <img
+                            key={drawNote.id}
+                            src={drawNote.data}
+                            alt="Drawn note"
+                            className="w-24 h-24 object-contain rounded-md"
+                        />
+                    ))}
+                  </div>
+              )}
+            </td>
+            <td className="verse-actions">
+              <div className="verse-actions-container">
+                {isGrouped ? (
+                    <CheckCircle className="w-5 h-5 text-green-500"/>
+                ) : (
+                    <Checkbox
+                        id={`checkbox-${sanitizedVerseRef}`}
+                        checked={isSelected}
+                        onCheckedChange={() => onSelect?.(verse.verse)}
+                        className="border-border w-5 h-5"
+                        aria-label={`Select verse ${verse.verse}`}
+                    />
+                )}
+                <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-muted-foreground hover:text-primary hover:scale-105 transition-transform"
+                    >
+                      <MoreHorizontal className="w-5 h-5"/>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="bg-card">
+                    <DropdownMenuItem onClick={() => onOpenNoteDrawer?.(verseRef, '')}>
+                      <Pencil className="w-4 h-4 mr-2"/> Add Note
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setIsHighlighting(true)}>
+                      <Highlighter className="w-4 h-4 mr-2"/> Highlight Verse
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleAnnotateText}>
+                      <Highlighter className="w-4 h-4 mr-2"/> Annotate Text
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setIsLinkingVerse(true)}>
+                      <Link className="w-4 h-4 mr-2"/> Link to Verse
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setIsDrawing(true)}>
+                      <Paintbrush className="w-4 h-4 mr-2"/> Draw Note
+                    </DropdownMenuItem>
+                    {highlights.length > 0 && (
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger>
+                            <Trash className="w-4 h-4 mr-2"/> Remove Highlight
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent>
+                            {highlights.map((highlight) => (
+                                <DropdownMenuItem
+                                    key={highlight.id}
+                                    onClick={() => setShowRemoveHighlightDialog(highlight.id!)}
+                                >
+                                  Remove {highlight.color} ({highlight.language})
+                                </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                    )}
+                    {notes.length > 0 && (
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger>
+                            <Trash className="w-4 h-4 mr-2"/> Remove Note
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent>
+                            {notes.map((note) => (
+                                <DropdownMenuItem
+                                    key={note.id}
+                                    onClick={() => setShowRemoveNoteDialog(note.id!)}
+                                >
+                                  Remove: {note.content.substring(0, 20)}...
+                                </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                    )}
+                    {verseLinks.length > 0 && (
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger>
+                            <Trash className="w-4 h-4 mr-2"/> Remove Link
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent>
+                            {verseLinks.map((link) => (
+                                <DropdownMenuItem
+                                    key={link.id}
+                                    onClick={() => db.verseLinks.delete(link.id!)}
+                                >
+                                  Remove: {link.targetRef}
+                                </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                    )}
+                    {drawNotes.length > 0 && (
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger>
+                            <Trash className="w-4 h-4 mr-2"/> Remove Drawing
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent>
+                            {drawNotes.map((drawNote) => (
+                                <DropdownMenuItem
+                                    key={drawNote.id}
+                                    onClick={() => setShowRemoveDrawNoteDialog(drawNote.id!)}
+                                >
+                                  Remove Drawing
+                                </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                    )}
+                    {textAnnotations.length > 0 && (
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger>
+                            <Trash className="w-4 h-4 mr-2"/> Remove Text Annotation
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent>
+                            {textAnnotations.map((annotation) => (
+                                <DropdownMenuItem
+                                    key={annotation.id}
+                                    onClick={() => setShowRemoveTextAnnotationDialog(annotation.id!)}
+                                >
+                                  Remove: {(translation === 'English' || translation === 'Both' ? verse.text : teluguText || '').slice(annotation.start, annotation.end)} ({annotation.language})
+                                </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </td>
+          </tr>
+          </tbody>
+        </table>
+        {error && (
+            <Alert variant="destructive" className="mt-1 px-4 max-w-screen-2xl mx-auto">
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+        )}
+        <Dialog open={isHighlighting} onOpenChange={setIsHighlighting}>
+          <DialogContent className="bg-card dialog-content">
+            <DialogHeader>
+              <DialogTitle>Highlight Verse</DialogTitle>
+              <DialogDescription>
+                Choose a color to highlight {verse.book_name} {verse.chapter}:{verse.verse} in both English and Telugu.
+              </DialogDescription>
+            </DialogHeader>
+            <ChromePicker
+                color={highlightColor}
+                onChange={(color) => setHighlightColor(color.hex)}
+                disableAlpha
+            />
+            <Button
+                onClick={addHighlight}
+                className="mt-4 bg-primary text-primary-foreground"
+            >
+              Apply Highlight
+            </Button>
+          </DialogContent>
+        </Dialog>
+        <Dialog
+            open={isAnnotatingText}
+            onOpenChange={(open) => {
+              setIsAnnotatingText(open);
+              if (!open) {
+                setSelectedTextRange(null);
+                setSelectedLanguage(null);
+                window.getSelection()?.removeAllRanges();
               }
             }}
-            width={300}
-            height={200}
-            className="border border-border dark:border-border rounded-md"
-          />
-          <div className="flex gap-2 mt-4">
+        >
+          <DialogContent className="bg-card dialog-content">
+            <DialogHeader>
+              <DialogTitle>Annotate Text</DialogTitle>
+              <DialogDescription>
+                {selectedTextRange
+                    ? `Annotate selected text in ${verse.book_name} ${verse.chapter}:${verse.verse} for ${selectedLanguage}.`
+                    : 'Select text in the verse to annotate.'}
+              </DialogDescription>
+            </DialogHeader>
+            {selectedTextRange && (
+                <>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Highlight Color</label>
+                    <ChromePicker
+                        color={annotationStyle.color}
+                        onChange={(color) => setAnnotationStyle({...annotationStyle, color: color.hex})}
+                        disableAlpha
+                    />
+                    <label className="text-sm font-medium">Underline Type</label>
+                    <Select
+                        value={annotationStyle.underlineType || 'solid'}
+                        onValueChange={(value) =>
+                            setAnnotationStyle({
+                              ...annotationStyle,
+                              underlineType: value as 'solid' | 'dotted' | 'dashed' | 'wavy'
+                            })
+                        }
+                    >
+                      <SelectTrigger className="bg-card">
+                        <SelectValue/>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="solid">Solid</SelectItem>
+                        <SelectItem value="dotted">Dotted</SelectItem>
+                        <SelectItem value="dashed">Dashed</SelectItem>
+                        <SelectItem value="wavy">Wavy</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <label className="text-sm font-medium">Font Style</label>
+                    <div className="flex gap-2">
+                      <Button
+                          variant={annotationStyle.bold ? 'default' : 'outline'}
+                          onClick={() => setAnnotationStyle({...annotationStyle, bold: !annotationStyle.bold})}
+                          size="sm"
+                          className={annotationStyle.bold ? 'bg-primary text-primary-foreground' : 'bg-card'}
+                      >
+                        Bold
+                      </Button>
+                      <Button
+                          variant={annotationStyle.italic ? 'default' : 'outline'}
+                          onClick={() => setAnnotationStyle({...annotationStyle, italic: !annotationStyle.italic})}
+                          size="sm"
+                          className={annotationStyle.italic ? 'bg-primary text-primary-foreground' : 'bg-card'}
+                      >
+                        Italic
+                      </Button>
+                    </div>
+                    <label className="text-sm font-medium">Font Family</label>
+                    <Select
+                        value={annotationStyle.fontFamily || 'Arial'}
+                        onValueChange={(value) => setAnnotationStyle({...annotationStyle, fontFamily: value})}
+                    >
+                      <SelectTrigger className="bg-card">
+                        <SelectValue/>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Arial">Arial</SelectItem>
+                        <SelectItem value="Times New Roman">Times New Roman</SelectItem>
+                        <SelectItem value="Georgia">Georgia</SelectItem>
+                        <SelectItem value="Courier New">Courier New</SelectItem>
+                        <SelectItem value="Noto Serif Telugu">Noto Serif Telugu</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                      onClick={addTextAnnotation}
+                      className="mt-4 bg-primary text-primary-foreground"
+                  >
+                    Apply Annotation
+                  </Button>
+                </>
+            )}
+          </DialogContent>
+        </Dialog>
+        <Dialog open={isLinkingVerse} onOpenChange={setIsLinkingVerse}>
+          <DialogContent className="bg-card dialog-content">
+            <DialogHeader>
+              <DialogTitle>Link to Another Verse</DialogTitle>
+              <DialogDescription>
+                Enter a verse reference (e.g., John:3:16) to link from {verse.book_name} {verse.chapter}:{verse.verse}.
+              </DialogDescription>
+            </DialogHeader>
+            <Input
+                value={targetVerseRef}
+                onChange={(e) => setTargetVerseRef(e.target.value)}
+                placeholder="Enter verse (e.g., John:3:16)"
+                className="bg-card"
+            />
             <Button
-              onClick={saveDrawing}
-              size="sm"
-              className="bg-primary text-white dark:text-white hover:bg-gray-700 dark:hover:bg-gray-700"
+                onClick={addVerseLink}
+                className="mt-4 bg-primary text-primary-foreground"
             >
-              Save Drawing
+              Save Link
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className={`bg-card dark:bg-card ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-black hover:bg-gray-200'}`}
-              onClick={() => setIsDrawing(false)}
-            >
-              Cancel
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-      <AlertDialog open={!!showRemoveHighlightDialog} onOpenChange={() => setShowRemoveHighlightDialog(null)}>
-        <AlertDialogContent >
-          <AlertDialogHeader>
-            <AlertDialogTitle >Remove Highlight</AlertDialogTitle>
-            <AlertDialogDescription >
-              Are you sure you want to remove this highlight from {verse.book_name} {verse.chapter}:{verse.verse}?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className={`bg-card dark:bg-card ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-black hover:bg-gray-200'}`}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => removeHighlight(showRemoveHighlightDialog as string)}
-              className="bg-primary text-white dark:text-white hover:bg-gray-700 dark:hover:bg-gray-700"
-            >
-              Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      <AlertDialog open={!!showRemoveNoteDialog} onOpenChange={() => setShowRemoveNoteDialog(null)}>
-        <AlertDialogContent >
-          <AlertDialogHeader>
-            <AlertDialogTitle >Remove Note</AlertDialogTitle>
-            <AlertDialogDescription >
-              Are you sure you want to remove this note from {verse.book_name} {verse.chapter}:{verse.verse}?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className={`bg-card dark:bg-card ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-black hover:bg-gray-200'}`}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => removeNote(showRemoveNoteDialog as string)}
-              className="bg-primary text-white dark:text-white hover:bg-gray-700 dark:hover:bg-gray-700"
-            >
-              Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      <AlertDialog open={!!showRemoveDrawNoteDialog} onOpenChange={() => setShowRemoveDrawNoteDialog(null)}>
-        <AlertDialogContent >
-          <AlertDialogHeader>
-            <AlertDialogTitle >Remove Drawing</AlertDialogTitle>
-            <AlertDialogDescription >
-              Are you sure you want to remove this drawing from {verse.book_name} {verse.chapter}:{verse.verse}?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className={`bg-card dark:bg-card ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-black hover:bg-gray-200'}`}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => removeDrawNote(showRemoveDrawNoteDialog as string)}
-              className="bg-primary text-white dark:text-white hover:bg-gray-700 dark:hover:bg-gray-700"
-            >
-              Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      <AlertDialog open={!!showRemoveTextAnnotationDialog} onOpenChange={() => setShowRemoveTextAnnotationDialog(null)}>
-        <AlertDialogContent >
-          <AlertDialogHeader>
-            <AlertDialogTitle >Remove Text Annotation</AlertDialogTitle>
-            <AlertDialogDescription >
-              Are you sure you want to remove this text annotation from {verse.book_name} {verse.chapter}:{verse.verse}?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className={`bg-card dark:bg-card ${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-black hover:bg-gray-200'}`}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => removeTextAnnotation(showRemoveTextAnnotationDialog as string)}
-              className="bg-primary text-white dark:text-white hover:bg-gray-700 dark:hover:bg-gray-700"
-            >
-              Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={isDrawing} onOpenChange={setIsDrawing}>
+          <DialogContent className="bg-card dialog-content">
+            <DialogHeader>
+              <DialogTitle>Draw Note</DialogTitle>
+              <DialogDescription>
+                Draw a note for {verse.book_name} {verse.chapter}:{verse.verse} using the canvas below.
+              </DialogDescription>
+            </DialogHeader>
+            <canvas
+                ref={(el) => {
+                  if (el && !canvasRef.current) {
+                    canvasRef.current = el;
+                    initCanvas(el);
+                  }
+                }}
+                width={300}
+                height={200}
+                className="border border-border rounded-md"
+            />
+            <div className="flex gap-2 mt-4">
+              <Button
+                  onClick={saveDrawing}
+                  size="sm"
+                  className="bg-primary text-primary-foreground"
+              >
+                Save Drawing
+              </Button>
+              <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-card"
+                  onClick={() => setIsDrawing(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+        <AlertDialog open={!!showRemoveHighlightDialog} onOpenChange={() => setShowRemoveHighlightDialog(null)}>
+          <AlertDialogContent className="bg-card dialog-content">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remove Highlight</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to remove this highlight from {verse.book_name} {verse.chapter}:{verse.verse}?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="bg-card">
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                  onClick={() => removeHighlight(showRemoveHighlightDialog as string)}
+                  className="bg-primary text-primary-foreground"
+              >
+                Remove
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog open={!!showRemoveNoteDialog} onOpenChange={() => setShowRemoveNoteDialog(null)}>
+          <AlertDialogContent className="bg-card dialog-content">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remove Note</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to remove this note from {verse.book_name} {verse.chapter}:${verse.verse}?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="bg-card">
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                  onClick={() => removeNote(showRemoveNoteDialog as string)}
+                  className="bg-primary text-primary-foreground"
+              >
+                Remove
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog open={!!showRemoveDrawNoteDialog} onOpenChange={() => setShowRemoveDrawNoteDialog(null)}>
+          <AlertDialogContent className="bg-card dialog-content">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remove Drawing</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to remove this drawing from {verse.book_name} {verse.chapter}:${verse.verse}?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="bg-card">
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                  onClick={() => removeDrawNote(showRemoveDrawNoteDialog as string)}
+                  className="bg-primary text-primary-foreground"
+              >
+                Remove
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog open={!!showRemoveTextAnnotationDialog}
+                     onOpenChange={() => setShowRemoveTextAnnotationDialog(null)}>
+          <AlertDialogContent className="bg-card dialog-content">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remove Text Annotation</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to remove this text annotation
+                from {verse.book_name} {verse.chapter}:${verse.verse}?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="bg-card">
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                  onClick={() => removeTextAnnotation(showRemoveTextAnnotationDialog as string)}
+                  className="bg-primary text-primary-foreground"
+              >
+                Remove
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
   );
 }
