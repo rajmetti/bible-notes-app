@@ -146,7 +146,7 @@
 }
 
 .verse-row {
-  @apply border-b border-border last:border-b-0 transition-all duration-200 hover:bg-muted/50;
+  @apply transition-all duration-200 hover:bg-muted/50;
 }
 
 .group-container {
@@ -179,7 +179,10 @@
 
 @layer utilities {
   .font-noto-serif-telugu {
-    /* font-family: 'Noto Serif Telugu', serif; */
+     font-family: 'Baloo Tammudu 2', serif;
+  }
+  .font-noto-serif-english{
+    font-family: 'Gmarket Sans', serif;
   }
 
   .bible-grid {

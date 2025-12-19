@@ -490,8 +490,6 @@ export default function Bible() {
                   </Button>
                 )}
                 <ModeToggle></ModeToggle>
-              </div>
-              <div className="flex gap-4 mt-4">
                 <Button
                   onClick={() => navigateChapter('previous')}
                   disabled={book === bibleBooks.oldTestament[0] && chapter === 1}
@@ -541,7 +539,7 @@ export default function Bible() {
           <ChevronRight className="w-6 h-6" />
         </Button>
       </div>
-      <div className={`content-below-header ${isNotePaneOpen ? 'bible-grid-with-pane' : 'bible-grid'} gap-1rem`}>
+      <div className={`content-below-header ${isNotePaneOpen ? 'bible-grid-with-pane' : 'bible-grid'} px-4 gap-1rem`}>
         <div className="verses-pane">
           <div className="w-full max-w-screen-2xl mx-auto px-2">
             {verses.length === 0 ? (

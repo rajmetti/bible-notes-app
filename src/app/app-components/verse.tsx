@@ -600,7 +600,7 @@ export function Verse({
             </td>
             <td className="verse-text">
               {translation === 'English' || translation === 'Both' ? (
-                  <div className="text-sm">
+                  <div className="text-sm font-noto-serif-english">
                     {verse.text ? renderAnnotatedText(verse.text, 'English', englishTextRef) : 'No English text available'}
                   </div>
               ) : null}
